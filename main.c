@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -242,12 +243,14 @@ int tokenize(Arena *a, Tokenizer *t, const char *smiles) {
       break;
   }
 
-  // for (size_t i = 0; i < t->token_count; i++) {
-  //   char buf[64];
-  //   printf("%s\n", token_string(&t->tokens[i], buf));
-  // }
-  //
   return 0;
+}
+
+void print_tokens(Token *tokens, size_t token_count) {
+  for (size_t i = 0; i < token_count; i++) {
+    char buf[128];
+    printf("%s\n", token_string(&tokens[i], buf));
+  }
 }
 
 //===============================
@@ -299,7 +302,13 @@ void stack_replace(NumberStack *stack, size_t new_number) {
 // "$" | ":" | "/" | "\" <number>       ::= <digit> | <digit> <number> <digit>
 // ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 
-typedef enum { AST_CHAIN, AST_BRANCH, AST_ATOM, AST_BOND } ast_node_t;
+typedef enum {
+  AST_CHAIN,
+  AST_BRANCH,
+  AST_BRIDGE,
+  AST_ATOM,
+  AST_BOND
+} ast_node_t;
 
 #define MAX_AST_CHILDREN 32
 typedef struct ASTNode {
@@ -321,15 +330,21 @@ typedef struct ASTNode {
     struct {
       size_t source_atom_index;
     } branch;
+    struct {
+      size_t source_atom_index;
+      size_t target_atom_index;
+    } bridge;
   } as;
 } ASTNode;
 
+#define MAX_RINGS 64
 typedef struct {
   Token *tokens;
   size_t token_count;
   size_t pointer;
   size_t atom_count;
   NumberStack last_atoms;
+  int ring_openings[MAX_RINGS];
 } Parser;
 
 ASTNode *ast_node_create(Arena *a, ast_node_t type) {
@@ -428,6 +443,28 @@ ASTNode *parse_chain(Arena *a, Parser *p) {
       chain->children[chain->num_children++] = atom;
       break;
     }
+    case TOKEN_NUMBER: {
+      Token num_token = eat(p, TOKEN_NUMBER);
+      int ring_idx = num_token.as.num.value;
+      if (p->ring_openings[ring_idx] > -1) {
+        // A ring was already open, need to close it
+        int source_atom_index = last_atom;
+        int target_atom_index = p->ring_openings[ring_idx];
+
+        ASTNode *bridge = ast_node_create(a, AST_BRIDGE);
+        bridge->as.bridge.source_atom_index = source_atom_index;
+        bridge->as.bridge.target_atom_index = target_atom_index;
+
+        p->ring_openings[ring_idx] = -1;
+        chain->children[chain->num_children++] = bridge;
+        break;
+      }
+      p->ring_openings[ring_idx] = last_atom;
+      if (last_atom < 0) {
+        printf("WARNING: Headless ring detected!\n");
+      }
+      break;
+    }
     default: {
       char buf[64];
       Token tok = peek(p);
@@ -441,6 +478,10 @@ ASTNode *parse_chain(Arena *a, Parser *p) {
 
 ASTNode *parse_tokens(Arena *a, Token *tokens, size_t token_count) {
   Parser p = {0};
+  for (size_t i = 0; i < MAX_RINGS; i++) {
+    p.ring_openings[i] = -1;
+  }
+
   p.tokens = tokens;
   p.token_count = token_count;
   ASTNode *root = parse_chain(a, &p);
@@ -465,6 +506,11 @@ const char *ast_node_string(ASTNode *node, char *buf, size_t tab_level) {
     sprintf(buf, "AST_BRANCH: Head: %zu", node->as.branch.source_atom_index);
     return buf;
   }
+  case AST_BRIDGE: {
+    sprintf(buf, "AST_BRIDGE: %zu -> %zu", node->as.bridge.source_atom_index,
+            node->as.bridge.target_atom_index);
+    return buf;
+  }
   case AST_CHAIN: {
     sprintf(buf, "AST_CHAIN");
     return buf;
@@ -484,12 +530,14 @@ int main() {
   Arena a = arena_create();
 
   // const char *smiles = "[C:23]C(=[O:2])COSNa";
-  const char *smiles = "[C:1][C:2](=[O:3][C:4][C:5](#O))[O:7][C:8]";
+  // const char *smiles = "[C:1][C:2](=[O:3][C:4][C:5](#O))[O:7][C:8]";
+  const char *smiles = "C1CCCCC1";
   Tokenizer t = {0};
   tokenize(&a, &t, smiles);
   ASTNode *root = parse_tokens(&a, t.tokens, t.token_count);
 
   char buf[64];
+  print_tokens(t.tokens, t.token_count);
   print_ast(root, buf, 0);
 
   arena_destroy(&a);
