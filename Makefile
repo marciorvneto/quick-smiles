@@ -1,2 +1,11 @@
-main.o: main.c
-	gcc -o main.o main.c -g
+OUT_DIR := ./out
+
+$(OUT_DIR)/example: example.c | $(OUT_DIR)
+	gcc -o $(OUT_DIR)/example example.c -g
+
+$(OUT_DIR):
+	@mkdir -p $(OUT_DIR)
+
+clean:
+	rm -rf $(OUT_DIR)
+
