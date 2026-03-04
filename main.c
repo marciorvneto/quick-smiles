@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -302,13 +303,7 @@ void stack_replace(NumberStack *stack, size_t new_number) {
 // "$" | ":" | "/" | "\" <number>       ::= <digit> | <digit> <number> <digit>
 // ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 
-typedef enum {
-  AST_CHAIN,
-  AST_BRANCH,
-  AST_BRIDGE,
-  AST_ATOM,
-  AST_BOND
-} ast_node_t;
+typedef enum { AST_CHAIN, AST_BRANCH, AST_ATOM, AST_BOND } ast_node_t;
 
 #define MAX_AST_CHILDREN 32
 typedef struct ASTNode {
@@ -323,6 +318,8 @@ typedef struct ASTNode {
     } atom;
     struct {
       int order;
+      size_t atom_a_index;
+      size_t atom_b_index;
     } bond;
     struct {
       int value;
@@ -439,6 +436,17 @@ ASTNode *parse_chain(Arena *a, Parser *p) {
     }
     case TOKEN_ATOM: {
       ASTNode *atom = parse_atom(a, p);
+      // If there's a last_atom, then we connect it with
+      // a simple bond
+
+      if (last_atom > -1) {
+        ASTNode *bond = ast_node_create(a, AST_BOND);
+        bond->as.bond.order = 1;
+        bond->as.bond.atom_a_index = last_atom;
+        bond->as.bond.atom_b_index = atom->as.atom.index;
+        chain->children[chain->num_children++] = bond;
+      }
+
       last_atom = atom->as.atom.index;
       chain->children[chain->num_children++] = atom;
       break;
@@ -451,12 +459,13 @@ ASTNode *parse_chain(Arena *a, Parser *p) {
         int source_atom_index = last_atom;
         int target_atom_index = p->ring_openings[ring_idx];
 
-        ASTNode *bridge = ast_node_create(a, AST_BRIDGE);
-        bridge->as.bridge.source_atom_index = source_atom_index;
-        bridge->as.bridge.target_atom_index = target_atom_index;
+        ASTNode *bond = ast_node_create(a, AST_BOND);
+        bond->as.bond.order = 1;
+        bond->as.bond.atom_a_index = source_atom_index;
+        bond->as.bond.atom_b_index = target_atom_index;
 
         p->ring_openings[ring_idx] = -1;
-        chain->children[chain->num_children++] = bridge;
+        chain->children[chain->num_children++] = bond;
         break;
       }
       p->ring_openings[ring_idx] = last_atom;
@@ -499,16 +508,12 @@ const char *ast_node_string(ASTNode *node, char *buf, size_t tab_level) {
     return buf;
   }
   case AST_BOND: {
-    sprintf(buf, "AST_BOND: %d", node->as.bond.order);
+    sprintf(buf, "AST_BOND: %zu -(%d)- %zu", node->as.bond.atom_a_index,
+            node->as.bond.order, node->as.bond.atom_b_index);
     return buf;
   }
   case AST_BRANCH: {
     sprintf(buf, "AST_BRANCH: Head: %zu", node->as.branch.source_atom_index);
-    return buf;
-  }
-  case AST_BRIDGE: {
-    sprintf(buf, "AST_BRIDGE: %zu -> %zu", node->as.bridge.source_atom_index,
-            node->as.bridge.target_atom_index);
     return buf;
   }
   case AST_CHAIN: {
@@ -526,12 +531,131 @@ void print_ast(ASTNode *root, char *buf, size_t indentation_level) {
   }
 }
 
+//==============================
+//
+//   Molecule structures
+//
+//==============================
+
+#define DEFAULT_BOND_ARRAY_SIZE 64
+#define DEFAULT_ATOMS_ARRAY_SIZE 64
+
+typedef struct {
+  const char *name;
+  size_t index;
+  size_t label;
+} Atom;
+
+// This is a sparse incidence matrix entry
+// Simple -> 1
+// Double -> 2
+// Triple -> 3
+// ... and so on
+typedef struct {
+  size_t atom_a;
+  size_t atom_b;
+  unsigned short order;
+} Bond;
+
+typedef struct {
+  const char *name;
+  Atom **atoms;
+  Bond *bonds;
+  size_t atoms_count;
+  size_t bonds_count;
+} Molecule;
+
+Atom *create_atom(Arena *a, const char *name) {
+  Atom *atom = arena_alloc(a, sizeof(Atom));
+  atom->name = name;
+  return atom;
+}
+
+Molecule *create_molecule(Arena *a, const char *name) {
+  Molecule *m = arena_alloc(a, sizeof(Molecule));
+  m->name = name;
+  m->bonds = arena_alloc(a, sizeof(Bond) * DEFAULT_BOND_ARRAY_SIZE);
+  m->atoms = arena_alloc(a, sizeof(Atom *) * DEFAULT_ATOMS_ARRAY_SIZE);
+  m->atoms_count = 0;
+  m->bonds_count = 0;
+  return m;
+}
+
+Molecule *clone_molecule(Arena *a, Molecule *original, const char *clone_name) {
+  assert(original->atoms_count <= DEFAULT_ATOMS_ARRAY_SIZE);
+  assert(original->bonds_count <= DEFAULT_BOND_ARRAY_SIZE);
+  Molecule *new_molecule = create_molecule(a, clone_name);
+  new_molecule->atoms_count = original->atoms_count;
+  for (size_t a_idx = 0; a_idx < original->atoms_count; a_idx++) {
+    // This is fine because all atoms have been preallocated at the
+    // start of the program and only get freed after it ends. Atoms
+    // are shared.
+    new_molecule->atoms[a_idx] = original->atoms[a_idx];
+  }
+  new_molecule->bonds_count = original->bonds_count;
+  for (size_t b_idx = 0; b_idx < original->bonds_count; b_idx++) {
+    new_molecule->bonds[b_idx] = original->bonds[b_idx];
+  }
+  return new_molecule;
+}
+
+void push_atom(Molecule *m, Atom *atom) {
+  assert(m->atoms_count < DEFAULT_ATOMS_ARRAY_SIZE);
+  m->atoms[m->atoms_count++] = atom;
+}
+void push_bond(Molecule *m, size_t idx_a, size_t idx_b, unsigned short order) {
+  assert(m->bonds_count < DEFAULT_BOND_ARRAY_SIZE);
+  Bond bond;
+  bond.order = order;
+  bond.atom_a = idx_a;
+  bond.atom_b = idx_b;
+  m->bonds[m->bonds_count++] = bond;
+}
+
+//==============================
+//
+//   AST to Molecule
+//
+//==============================
+
+Atom *make_atom(Arena *a, const char *name, size_t index, int label) {
+  Atom *atom = create_atom(a, name);
+  atom->index = index;
+  atom->label = label;
+  return atom;
+}
+
+void register_node_atoms(Arena *a, ASTNode *node, Molecule *m) {
+  for (size_t i = 0; i < node->num_children; i++) {
+    ASTNode *child = node->children[i];
+    if (child->type == AST_ATOM) {
+      push_atom(m, make_atom(a, child->as.atom.atom, child->as.atom.index,
+                             child->as.atom.label));
+      continue;
+    }
+    register_node_atoms(a, child, m);
+  }
+}
+
+Molecule *molecule_from_ast(Arena *a, ASTNode *tree, const char *name) {
+  Molecule *m = create_molecule(a, name);
+  register_node_atoms(a, tree, m);
+  return m;
+}
+
 int main() {
   Arena a = arena_create();
 
+  Atom *H = create_atom(&a, "H");
+  Atom *C = create_atom(&a, "C");
+  Atom *O = create_atom(&a, "O");
+  Atom *N = create_atom(&a, "N");
+  Atom *P = create_atom(&a, "P");
+  Atom *S = create_atom(&a, "S");
+
   // const char *smiles = "[C:23]C(=[O:2])COSNa";
   // const char *smiles = "[C:1][C:2](=[O:3][C:4][C:5](#O))[O:7][C:8]";
-  const char *smiles = "C1CCCCC1";
+  const char *smiles = "C1CCC#CC1";
   Tokenizer t = {0};
   tokenize(&a, &t, smiles);
   ASTNode *root = parse_tokens(&a, t.tokens, t.token_count);
@@ -539,6 +663,8 @@ int main() {
   char buf[64];
   print_tokens(t.tokens, t.token_count);
   print_ast(root, buf, 0);
+
+  Molecule *molecule = molecule_from_ast(&a, root, "cyclohexane");
 
   arena_destroy(&a);
 
