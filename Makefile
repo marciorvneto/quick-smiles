@@ -1,6 +1,6 @@
 OUT_DIR := ./out
 
-$(OUT_DIR)/example: example.c | $(OUT_DIR)
+$(OUT_DIR)/example: example.c quick-smiles.h | $(OUT_DIR)
 	gcc -o $(OUT_DIR)/example example.c -g
 
 $(OUT_DIR):
