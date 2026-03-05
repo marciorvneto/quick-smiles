@@ -146,8 +146,8 @@ void qs_print_ast(qs_ASTNode *root, size_t indentation_level);
 //         IMPLEMENTATION
 //================================================
 
-/* #ifdef QUICK_SMILES_IMPLEMENTATION */
-#if 1
+#ifdef QUICK_SMILES_IMPLEMENTATION
+/* #if 1 */
 
 #define LEN(x) sizeof(x) / sizeof(x[0])
 
