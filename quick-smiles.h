@@ -118,7 +118,7 @@ typedef struct {
 } qs_Parser;
 
 qs_ASTNode *qs_parse_tokens(qs_Arena *a, qs_Token *tokens, size_t token_count);
-void qs_print_ast(qs_ASTNode *root, char *buf, size_t indentation_level);
+void qs_print_ast(qs_ASTNode *root, size_t indentation_level);
 
 #ifdef QUICK_SMILES_IMPLEMENTATION
 /* #if 1 */
@@ -529,11 +529,12 @@ static const char *ast_node_string(qs_ASTNode *node, char *buf,
   }
 }
 
-void qs_print_ast(qs_ASTNode *root, char *buf, size_t indentation_level) {
+void qs_print_ast(qs_ASTNode *root, size_t indentation_level) {
+  char buf[128];
   const char *node_str = ast_node_string(root, buf, indentation_level);
   printf("%s\n", node_str);
   for (size_t i = 0; i < root->num_children; i++) {
-    qs_print_ast(root->children[i], buf, indentation_level + 1);
+    qs_print_ast(root->children[i], indentation_level + 1);
   }
 }
 
