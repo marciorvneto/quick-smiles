@@ -43,12 +43,17 @@ typedef enum {
   QS_TOKEN_BOND,
   QS_TOKEN_PERCENT,
 
+  QS_TOKEN_AT,
+  QS_TOKEN_DOUBLEAT,
+  QS_TOKEN_SLASH,
+  QS_TOKEN_BACKSLASH,
+
   QS_TOKEN_END,
   QS_TOKEN_ERR,
-} token_t;
+} qs_token_t;
 
 typedef struct {
-  token_t type;
+  qs_token_t type;
   union {
     union {
       int value;
@@ -87,6 +92,18 @@ typedef enum {
   QS_AST_RING_BOND
 } qs_ast_node_t;
 
+typedef enum {
+  QS_CHIRALITY_NONE,
+  QS_CHIRALITY_CCW,
+  QS_CHIRALITY_CW,
+} qs_chirality_t;
+
+typedef enum {
+  QS_BOND_DIRECTION_NONE,
+  QS_BOND_DIRECTION_FORWARD,
+  QS_BOND_DIRECTION_BACKWARD,
+} qs_bond_direction_t;
+
 #define QS_MAX_QS_AST_CHILDREN 32
 typedef struct qs_ASTNode {
   qs_ast_node_t type;
@@ -96,9 +113,12 @@ typedef struct qs_ASTNode {
     struct {
       char *atom;
       int label;
+      qs_chirality_t chirality;
+      size_t explicit_hydrogens;
     } atom;
     struct {
       int order;
+      qs_bond_direction_t direction;
     } bond;
     struct {
       int label;
@@ -126,8 +146,8 @@ void qs_print_ast(qs_ASTNode *root, size_t indentation_level);
 //         IMPLEMENTATION
 //================================================
 
-#ifdef QUICK_SMILES_IMPLEMENTATION
-/* #if 1 */
+/* #ifdef QUICK_SMILES_IMPLEMENTATION */
+#if 1
 
 #define LEN(x) sizeof(x) / sizeof(x[0])
 
@@ -196,6 +216,14 @@ static const char *token_string(qs_Token *tok, char *buf) {
     sprintf(buf, "QS_TOKEN_BOND: %d", tok->as.bond.order);
     return buf;
   }
+  case QS_TOKEN_AT:
+    return "QS_TOKEN_AT";
+  case QS_TOKEN_DOUBLEAT:
+    return "QS_TOKEN_DOUBLEAT";
+  case QS_TOKEN_SLASH:
+    return "QS_TOKEN_SLASH";
+  case QS_TOKEN_BACKSLASH:
+    return "QS_TOKEN_BACKSLASH";
   case QS_TOKEN_PERCENT: {
     return "QS_TOKEN_PERCENT";
   }
@@ -348,6 +376,35 @@ static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
     tokenizer->pointer++;
     return tok.type;
   }
+  case '@': {
+    char next = tokenizer->string[tokenizer->pointer + 1];
+    if (next == '@') {
+      qs_Token tok;
+      tok.type = QS_TOKEN_DOUBLEAT;
+      push_token(tokenizer, &tok);
+      tokenizer->pointer += 2;
+      return tok.type;
+    }
+    qs_Token tok;
+    tok.type = QS_TOKEN_AT;
+    push_token(tokenizer, &tok);
+    tokenizer->pointer++;
+    return tok.type;
+  }
+  case '/': {
+    qs_Token tok;
+    tok.type = QS_TOKEN_SLASH;
+    push_token(tokenizer, &tok);
+    tokenizer->pointer++;
+    return tok.type;
+  }
+  case '\\': {
+    qs_Token tok;
+    tok.type = QS_TOKEN_BACKSLASH;
+    push_token(tokenizer, &tok);
+    tokenizer->pointer++;
+    return tok.type;
+  }
   default: {
     if (isdigit(current)) {
       int num = parse_int(tokenizer);
@@ -417,7 +474,7 @@ static qs_ASTNode *ast_node_create(qs_Arena *a, qs_ast_node_t type) {
 
 static qs_Token peek(qs_Parser *p) { return p->tokens[p->pointer]; }
 
-static qs_Token eat(qs_Parser *p, token_t type) {
+static qs_Token eat(qs_Parser *p, qs_token_t type) {
   qs_Token tok = peek(p);
   if (tok.type != type) {
     qs_Token expected;
@@ -436,9 +493,36 @@ static qs_ASTNode *parse_atom(qs_Arena *a, qs_Parser *p) {
   qs_ASTNode *atom_node = ast_node_create(a, QS_AST_ATOM);
   qs_Token atom_token = eat(p, QS_TOKEN_ATOM);
   size_t n = strlen(atom_token.as.atom.atom) + 1;
+
+  // Initialization
+
   atom_node->as.atom.atom = (char *)qs_arena_alloc(a, n);
   strcpy(atom_node->as.atom.atom, atom_token.as.atom.atom);
   atom_node->as.atom.label = -1;
+  atom_node->as.atom.chirality = QS_CHIRALITY_NONE;
+  atom_node->as.atom.explicit_hydrogens = 0;
+
+  if (peek(p).type == QS_TOKEN_AT) {
+    eat(p, QS_TOKEN_AT);
+    atom_node->as.atom.chirality = QS_CHIRALITY_CCW;
+  }
+  if (peek(p).type == QS_TOKEN_DOUBLEAT) {
+    eat(p, QS_TOKEN_DOUBLEAT);
+    atom_node->as.atom.chirality = QS_CHIRALITY_CW;
+  }
+
+  // Optional hydrogen count
+  if (peek(p).type == QS_TOKEN_ATOM &&
+      (strcmp(peek(p).as.atom.atom, "H") == 0)) {
+    eat(p, QS_TOKEN_ATOM);
+    size_t num_hydrogens = 1;
+    qs_Token next = peek(p);
+    if (next.type == QS_TOKEN_NUMBER) {
+      num_hydrogens = next.as.num.value;
+    }
+    atom_node->as.atom.explicit_hydrogens = num_hydrogens;
+  }
+
   if (peek(p).type == QS_TOKEN_COLON) {
     eat(p, QS_TOKEN_COLON);
     qs_Token atom_index_token = eat(p, QS_TOKEN_NUMBER);
@@ -446,10 +530,32 @@ static qs_ASTNode *parse_atom(qs_Arena *a, qs_Parser *p) {
   }
   return atom_node;
 }
-static qs_ASTNode *parse_bond(qs_Arena *a, qs_Parser *p) {
+static qs_ASTNode *parse_bond(qs_Arena *a, qs_Parser *p,
+                              qs_token_t qs_token_type) {
   qs_ASTNode *bond_node = ast_node_create(a, QS_AST_BOND);
-  qs_Token bond = eat(p, QS_TOKEN_BOND);
-  bond_node->as.bond.order = bond.as.bond.order;
+  qs_Token bond = eat(p, qs_token_type);
+  switch (qs_token_type) {
+  case QS_TOKEN_BOND: {
+    bond_node->as.bond.direction = QS_BOND_DIRECTION_NONE;
+    bond_node->as.bond.order = bond.as.bond.order;
+    break;
+  }
+  case QS_TOKEN_SLASH: {
+    bond_node->as.bond.direction = QS_BOND_DIRECTION_FORWARD;
+    bond_node->as.bond.order = 1;
+    break;
+  }
+  case QS_TOKEN_BACKSLASH: {
+    bond_node->as.bond.direction = QS_BOND_DIRECTION_BACKWARD;
+    bond_node->as.bond.order = 1;
+    break;
+  }
+  default:
+    char buf[128];
+    printf("[%zu] Expected a bond type, got %s\n", p->pointer,
+           token_string(&bond, buf));
+    break;
+  }
   return bond_node;
 }
 
@@ -511,7 +617,17 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
   while (p->pointer < p->token_count) {
     switch (peek(p).type) {
     case QS_TOKEN_BOND: {
-      qs_ASTNode *bond = parse_bond(a, p);
+      qs_ASTNode *bond = parse_bond(a, p, QS_TOKEN_BOND);
+      ast_push_child(chain, bond);
+      break;
+    }
+    case QS_TOKEN_SLASH: {
+      qs_ASTNode *bond = parse_bond(a, p, QS_TOKEN_SLASH);
+      ast_push_child(chain, bond);
+      break;
+    }
+    case QS_TOKEN_BACKSLASH: {
+      qs_ASTNode *bond = parse_bond(a, p, QS_TOKEN_BACKSLASH);
       ast_push_child(chain, bond);
       break;
     }
@@ -535,8 +651,9 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
       qs_ASTNode *branch = ast_node_create(a, QS_AST_BRANCH);
       ast_push_child(last_atom, branch);
       qs_Token next = peek(p);
-      if (next.type == QS_TOKEN_BOND) {
-        qs_ASTNode *bond = parse_bond(a, p);
+      if (next.type == QS_TOKEN_BOND || next.type == QS_TOKEN_SLASH ||
+          next.type == QS_TOKEN_BACKSLASH) {
+        qs_ASTNode *bond = parse_bond(a, p, next.type);
         ast_push_child(branch, bond);
       } else {
         qs_ASTNode *bond = ast_node_create(a, QS_AST_BOND);
@@ -592,16 +709,25 @@ static const char *ast_node_string(qs_ASTNode *node, char *buf,
   }
   switch (node->type) {
   case QS_AST_ATOM: {
-    if (node->as.atom.label > -1) {
-      sprintf(buf, "QS_AST_ATOM: %s:%d", node->as.atom.atom,
-              node->as.atom.label);
-    } else {
-      sprintf(buf, "QS_AST_ATOM: %s", node->as.atom.atom);
-    }
+    int n = sprintf(buf, "QS_AST_ATOM: %s", node->as.atom.atom);
+    if (node->as.atom.chirality == QS_CHIRALITY_CW)
+      n += sprintf(buf + n, " @@");
+    else if (node->as.atom.chirality == QS_CHIRALITY_CCW)
+      n += sprintf(buf + n, " @");
+    if (node->as.atom.explicit_hydrogens > 0)
+      n += sprintf(buf + n, " H%zu", node->as.atom.explicit_hydrogens);
+    if (node->as.atom.label > -1)
+      n += sprintf(buf + n, ":%d", node->as.atom.label);
     return buf;
   }
   case QS_AST_BOND: {
-    sprintf(buf, "QS_AST_BOND: (%d)", node->as.bond.order);
+    int n = sprintf(buf, "QS_AST_BOND: (%d)", node->as.bond.order);
+    if (node->as.bond.direction == QS_BOND_DIRECTION_FORWARD) {
+      n = sprintf(buf + n, " /");
+    }
+    if (node->as.bond.direction == QS_BOND_DIRECTION_BACKWARD) {
+      n = sprintf(buf + n, " \\");
+    }
     return buf;
   }
   case QS_AST_BRANCH: {

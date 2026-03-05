@@ -1,10 +1,17 @@
 OUT_DIR := ./out
+EXAMPLES_DIR := ./examples
 
-$(OUT_DIR)/example: example.c quick-smiles.h | $(OUT_DIR)
-	gcc -o $(OUT_DIR)/example example.c -g -lm
+$(OUT_DIR)/basic: $(EXAMPLES_DIR)/basic.c quick-smiles.h | $(OUT_DIR)
+	gcc -o $(OUT_DIR)/basic $(EXAMPLES_DIR)/basic.c -g -lm -I.
+
+$(OUT_DIR)/stereochem: $(EXAMPLES_DIR)/stereochem.c quick-smiles.h | $(OUT_DIR)
+	gcc -o $(OUT_DIR)/stereochem $(EXAMPLES_DIR)/stereochem.c -g -lm -I.
 
 $(OUT_DIR):
 	@mkdir -p $(OUT_DIR)
+
+
+all: $(OUT_DIR)/basic $(OUT_DIR)/stereochem
 
 clean:
 	rm -rf $(OUT_DIR)
