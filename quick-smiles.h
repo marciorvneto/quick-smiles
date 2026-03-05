@@ -78,14 +78,14 @@ void qs_print_tokens(qs_Token *tokens, size_t token_count);
 //===============================
 
 typedef enum {
-  AST_CHAIN,
-  AST_BRANCH,
-  AST_ATOM,
-  AST_BOND,
-  AST_RING_BOND
+  QS_AST_CHAIN,
+  QS_AST_BRANCH,
+  QS_AST_ATOM,
+  QS_AST_BOND,
+  QS_AST_RING_BOND
 } qs_ast_node_t;
 
-#define QS_MAX_AST_CHILDREN 32
+#define QS_MAX_QS_AST_CHILDREN 32
 typedef struct qs_ASTNode {
   qs_ast_node_t type;
   struct qs_ASTNode **children;
@@ -355,7 +355,7 @@ void qs_print_tokens(qs_Token *tokens, size_t token_count) {
 static qs_ASTNode *ast_node_create(qs_Arena *a, qs_ast_node_t type) {
   qs_ASTNode *node = (qs_ASTNode *)qs_arena_alloc(a, sizeof(qs_ASTNode));
   node->type = type;
-  node->children = (qs_ASTNode **)qs_arena_alloc(a, QS_MAX_AST_CHILDREN *
+  node->children = (qs_ASTNode **)qs_arena_alloc(a, QS_MAX_QS_AST_CHILDREN *
                                                         sizeof(qs_ASTNode *));
   node->num_children = 0;
   return node;
@@ -379,7 +379,7 @@ static qs_Token eat(qs_Parser *p, token_t type) {
 }
 
 static qs_ASTNode *parse_atom(qs_Arena *a, qs_Parser *p) {
-  qs_ASTNode *atom_node = ast_node_create(a, AST_ATOM);
+  qs_ASTNode *atom_node = ast_node_create(a, QS_AST_ATOM);
   qs_Token atom_token = eat(p, QS_TOKEN_ATOM);
   size_t n = strlen(atom_token.as.atom.atom) + 1;
   atom_node->as.atom.atom = (char *)qs_arena_alloc(a, n);
@@ -393,7 +393,7 @@ static qs_ASTNode *parse_atom(qs_Arena *a, qs_Parser *p) {
   return atom_node;
 }
 static qs_ASTNode *parse_bond(qs_Arena *a, qs_Parser *p) {
-  qs_ASTNode *bond_node = ast_node_create(a, AST_BOND);
+  qs_ASTNode *bond_node = ast_node_create(a, QS_AST_BOND);
   qs_Token bond = eat(p, QS_TOKEN_BOND);
   bond_node->as.bond.order = bond.as.bond.order;
   return bond_node;
@@ -409,7 +409,7 @@ static void process_atom_neighbors(qs_Arena *a, qs_Parser *p, qs_ASTNode *chain,
   qs_Token next = peek(p);
   if (next.type == QS_TOKEN_NUMBER) {
     // Ring bond location
-    qs_ASTNode *ring_bond = ast_node_create(a, AST_RING_BOND);
+    qs_ASTNode *ring_bond = ast_node_create(a, QS_AST_RING_BOND);
     ring_bond->as.ring_bond.label = next.as.num.value;
     ast_push_child(atom, ring_bond);
     eat(p, QS_TOKEN_NUMBER);
@@ -419,14 +419,14 @@ static void process_atom_neighbors(qs_Arena *a, qs_Parser *p, qs_ASTNode *chain,
   next = peek(p);
   if (next.type == QS_TOKEN_ATOM || next.type == QS_TOKEN_LBRACKET) {
     // Implicit bond!
-    qs_ASTNode *bond = ast_node_create(a, AST_BOND);
+    qs_ASTNode *bond = ast_node_create(a, QS_AST_BOND);
     bond->as.bond.order = 1;
     ast_push_child(chain, bond);
   }
 }
 
 static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
-  qs_ASTNode *chain = ast_node_create(a, AST_CHAIN);
+  qs_ASTNode *chain = ast_node_create(a, QS_AST_CHAIN);
   qs_ASTNode *last_atom = NULL;
   while (p->pointer < p->token_count) {
     switch (peek(p).type) {
@@ -452,14 +452,14 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
         break;
       }
       eat(p, QS_TOKEN_LPAREN);
-      qs_ASTNode *branch = ast_node_create(a, AST_BRANCH);
+      qs_ASTNode *branch = ast_node_create(a, QS_AST_BRANCH);
       ast_push_child(last_atom, branch);
       qs_Token next = peek(p);
       if (next.type == QS_TOKEN_BOND) {
         qs_ASTNode *bond = parse_bond(a, p);
         ast_push_child(branch, bond);
       } else {
-        qs_ASTNode *bond = ast_node_create(a, AST_BOND);
+        qs_ASTNode *bond = ast_node_create(a, QS_AST_BOND);
         bond->as.bond.order = 1;
         ast_push_child(branch, bond);
       }
@@ -508,28 +508,29 @@ static const char *ast_node_string(qs_ASTNode *node, char *buf,
     printf("  ");
   }
   switch (node->type) {
-  case AST_ATOM: {
+  case QS_AST_ATOM: {
     if (node->as.atom.label > -1) {
-      sprintf(buf, "AST_ATOM: %s:%d", node->as.atom.atom, node->as.atom.label);
+      sprintf(buf, "QS_AST_ATOM: %s:%d", node->as.atom.atom,
+              node->as.atom.label);
     } else {
-      sprintf(buf, "AST_ATOM: %s", node->as.atom.atom);
+      sprintf(buf, "QS_AST_ATOM: %s", node->as.atom.atom);
     }
     return buf;
   }
-  case AST_BOND: {
-    sprintf(buf, "AST_BOND: (%d)", node->as.bond.order);
+  case QS_AST_BOND: {
+    sprintf(buf, "QS_AST_BOND: (%d)", node->as.bond.order);
     return buf;
   }
-  case AST_BRANCH: {
-    sprintf(buf, "AST_BRANCH");
+  case QS_AST_BRANCH: {
+    sprintf(buf, "QS_AST_BRANCH");
     return buf;
   }
-  case AST_CHAIN: {
-    sprintf(buf, "AST_CHAIN");
+  case QS_AST_CHAIN: {
+    sprintf(buf, "QS_AST_CHAIN");
     return buf;
   }
-  case AST_RING_BOND: {
-    sprintf(buf, "AST_RING_BOND");
+  case QS_AST_RING_BOND: {
+    sprintf(buf, "QS_AST_RING_BOND");
     return buf;
   }
   }
