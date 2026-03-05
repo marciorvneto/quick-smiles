@@ -56,32 +56,41 @@ Ring closures are stored as annotations on the atoms that open and close the rin
 For the input `[C:23]1[C:2](-C-C-C)CC#C(=CO)C1`, the output looks like:
 
 ```
-AST_CHAIN
-  AST_ATOM: C:23
-    AST_RING_BOND
-  AST_BOND: (1)
-  AST_ATOM: C:2
-    AST_BRANCH
-      AST_BOND: (1)
-      AST_CHAIN
-        AST_ATOM: C
-        AST_BOND: (1)
-        AST_ATOM: C
-        AST_BOND: (1)
-        AST_ATOM: C
-  AST_ATOM: C
-  AST_BOND: (1)
-  AST_ATOM: C
-  AST_BOND: (3)
-  AST_ATOM: C
-    AST_BRANCH
-      AST_BOND: (2)
-      AST_CHAIN
-        AST_ATOM: C
-        AST_BOND: (1)
-        AST_ATOM: O
-  AST_ATOM: C
-    AST_RING_BOND
+QS_AST_CHAIN
+  QS_AST_ATOM: C
+  QS_AST_BOND: (1)
+  QS_AST_ATOM: n
+    QS_AST_RING_BOND: (1)
+  QS_AST_BOND: (1)
+  QS_AST_ATOM: c
+  QS_AST_BOND: (1)
+  QS_AST_ATOM: n
+  QS_AST_BOND: (1)
+  QS_AST_ATOM: c
+    QS_AST_RING_BOND: (2)
+  QS_AST_BOND: (1)
+  QS_AST_ATOM: c
+    QS_AST_RING_BOND: (1)
+  QS_AST_BOND: (1)
+  QS_AST_ATOM: c
+    QS_AST_BRANCH
+      QS_AST_BOND: (2)
+      QS_AST_CHAIN
+        QS_AST_ATOM: O
+  QS_AST_ATOM: n
+    QS_AST_BRANCH
+      QS_AST_BOND: (1)
+      QS_AST_CHAIN
+        QS_AST_ATOM: c
+          QS_AST_BRANCH
+            QS_AST_BOND: (2)
+            QS_AST_CHAIN
+              QS_AST_ATOM: O
+        QS_AST_ATOM: n
+          QS_AST_RING_BOND: (2)
+        QS_AST_BOND: (1)
+        QS_AST_ATOM: C
+  QS_AST_ATOM: C
 ```
 
 ## License
