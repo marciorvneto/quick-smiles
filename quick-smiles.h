@@ -14,7 +14,7 @@
 //
 //===============================
 
-#define QS_MAX_ARENA_SIZE 1024 * 1024 // 1MB
+#define QS_MAX_ARENA_SIZE (1024 * 1024) // 1MB
 typedef struct {
   void *base;
   size_t offset;
@@ -32,17 +32,17 @@ void qs_arena_destroy(qs_Arena *a);
 //===============================
 
 typedef enum {
-  TOKEN_NUMBER,
-  TOKEN_ATOM,
-  TOKEN_COLON,
-  TOKEN_LPAREN,
-  TOKEN_RPAREN,
-  TOKEN_LBRACKET,
-  TOKEN_RBRACKET,
-  TOKEN_BOND,
+  QS_TOKEN_NUMBER,
+  QS_TOKEN_ATOM,
+  QS_TOKEN_COLON,
+  QS_TOKEN_LPAREN,
+  QS_TOKEN_RPAREN,
+  QS_TOKEN_LBRACKET,
+  QS_TOKEN_RBRACKET,
+  QS_TOKEN_BOND,
 
-  TOKEN_END,
-  TOKEN_ERR,
+  QS_TOKEN_END,
+  QS_TOKEN_ERR,
 } token_t;
 
 typedef struct {
@@ -163,32 +163,32 @@ void qs_arena_destroy(qs_Arena *a) { free(a->base); }
 
 static const char *token_string(qs_Token *tok, char *buf) {
   switch (tok->type) {
-  case TOKEN_NUMBER: {
-    sprintf(buf, "TOKEN_NUMBER: %d", tok->as.num.value);
+  case QS_TOKEN_NUMBER: {
+    sprintf(buf, "QS_TOKEN_NUMBER: %d", tok->as.num.value);
     return buf;
   }
-  case TOKEN_ATOM: {
-    sprintf(buf, "TOKEN_ATOM: %s", tok->as.atom.atom);
+  case QS_TOKEN_ATOM: {
+    sprintf(buf, "QS_TOKEN_ATOM: %s", tok->as.atom.atom);
     return buf;
   }
-  case TOKEN_COLON:
-    return "TOKEN_COLON";
-  case TOKEN_LPAREN:
-    return "TOKEN_LPAREN";
-  case TOKEN_RPAREN:
-    return "TOKEN_RPAREN";
-  case TOKEN_LBRACKET:
-    return "TOKEN_LBRACKET";
-  case TOKEN_RBRACKET:
-    return "TOKEN_RBRACKET";
-  case TOKEN_BOND: {
-    sprintf(buf, "TOKEN_BOND: %d", tok->as.bond.order);
+  case QS_TOKEN_COLON:
+    return "QS_TOKEN_COLON";
+  case QS_TOKEN_LPAREN:
+    return "QS_TOKEN_LPAREN";
+  case QS_TOKEN_RPAREN:
+    return "QS_TOKEN_RPAREN";
+  case QS_TOKEN_LBRACKET:
+    return "QS_TOKEN_LBRACKET";
+  case QS_TOKEN_RBRACKET:
+    return "QS_TOKEN_RBRACKET";
+  case QS_TOKEN_BOND: {
+    sprintf(buf, "QS_TOKEN_BOND: %d", tok->as.bond.order);
     return buf;
   }
-  case TOKEN_END:
-    return "TOKEN_END";
-  case TOKEN_ERR:
-    return "TOKEN_ERR";
+  case QS_TOKEN_END:
+    return "QS_TOKEN_END";
+  case QS_TOKEN_ERR:
+    return "QS_TOKEN_ERR";
   }
 }
 
@@ -210,6 +210,7 @@ static int parse_int(qs_Tokenizer *tokenizer) {
 
 static const char *parse_atom_str(qs_Arena *a, qs_Tokenizer *tokenizer) {
   char *atom_string = (char *)qs_arena_alloc(a, 8);
+  memset(atom_string, 0, 8);
   char current = tokenizer->string[tokenizer->pointer];
   size_t i = 0;
   while (isalpha(current)) {
@@ -226,48 +227,48 @@ static const char *parse_atom_str(qs_Arena *a, qs_Tokenizer *tokenizer) {
 static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
                      size_t string_length) {
   if (tokenizer->pointer == string_length) {
-    return TOKEN_END;
+    return QS_TOKEN_END;
   }
   char current = tokenizer->string[tokenizer->pointer];
   switch (current) {
   case '(': {
     qs_Token tok;
-    tok.type = TOKEN_LPAREN;
+    tok.type = QS_TOKEN_LPAREN;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
     return tok.type;
   }
   case ')': {
     qs_Token tok;
-    tok.type = TOKEN_RPAREN;
+    tok.type = QS_TOKEN_RPAREN;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
     return tok.type;
   }
   case '[': {
     qs_Token tok;
-    tok.type = TOKEN_LBRACKET;
+    tok.type = QS_TOKEN_LBRACKET;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
     return tok.type;
   }
   case ']': {
     qs_Token tok;
-    tok.type = TOKEN_RBRACKET;
+    tok.type = QS_TOKEN_RBRACKET;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
     return tok.type;
   }
   case ':': {
     qs_Token tok;
-    tok.type = TOKEN_COLON;
+    tok.type = QS_TOKEN_COLON;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
     return tok.type;
   }
   case '-': {
     qs_Token tok;
-    tok.type = TOKEN_BOND;
+    tok.type = QS_TOKEN_BOND;
     tok.as.bond.order = 1;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
@@ -275,7 +276,7 @@ static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
   }
   case '=': {
     qs_Token tok;
-    tok.type = TOKEN_BOND;
+    tok.type = QS_TOKEN_BOND;
     tok.as.bond.order = 2;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
@@ -283,7 +284,7 @@ static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
   }
   case '#': {
     qs_Token tok;
-    tok.type = TOKEN_BOND;
+    tok.type = QS_TOKEN_BOND;
     tok.as.bond.order = 3;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
@@ -291,7 +292,7 @@ static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
   }
   case '$': {
     qs_Token tok;
-    tok.type = TOKEN_BOND;
+    tok.type = QS_TOKEN_BOND;
     tok.as.bond.order = 4;
     push_token(tokenizer, &tok);
     tokenizer->pointer++;
@@ -301,7 +302,7 @@ static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
     if (isdigit(current)) {
       int num = parse_int(tokenizer);
       qs_Token tok;
-      tok.type = TOKEN_NUMBER;
+      tok.type = QS_TOKEN_NUMBER;
       tok.as.num.value = num;
       push_token(tokenizer, &tok);
       return tok.type;
@@ -309,7 +310,7 @@ static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
     if (isalpha(current)) {
       const char *atom = parse_atom_str(a, tokenizer);
       qs_Token tok;
-      tok.type = TOKEN_ATOM;
+      tok.type = QS_TOKEN_ATOM;
       tok.as.atom.atom = atom;
       push_token(tokenizer, &tok);
       return tok.type;
@@ -327,11 +328,11 @@ int qs_tokenize(qs_Arena *a, qs_Tokenizer *t, const char *smiles) {
   int last_token;
   while (1) {
     last_token = get_token(a, t, string_length);
-    if (last_token == TOKEN_ERR) {
+    if (last_token == QS_TOKEN_ERR) {
       printf("Error during tokenization\n");
       exit(1);
     }
-    if (last_token == TOKEN_END)
+    if (last_token == QS_TOKEN_END)
       break;
   }
 
@@ -368,9 +369,10 @@ static qs_Token eat(qs_Parser *p, token_t type) {
     qs_Token expected;
     expected.type = type;
     char buf[32];
+    char expected_buf[32];
     printf("[%zu] Expected a: ", p->pointer);
     printf("%s, got %s\n", token_string(&expected, buf),
-           token_string(&tok, buf));
+           token_string(&tok, expected_buf));
     exit(1);
   }
   return p->tokens[p->pointer++];
@@ -378,21 +380,21 @@ static qs_Token eat(qs_Parser *p, token_t type) {
 
 static qs_ASTNode *parse_atom(qs_Arena *a, qs_Parser *p) {
   qs_ASTNode *atom_node = ast_node_create(a, AST_ATOM);
-  qs_Token atom_token = eat(p, TOKEN_ATOM);
+  qs_Token atom_token = eat(p, QS_TOKEN_ATOM);
   size_t n = strlen(atom_token.as.atom.atom) + 1;
   atom_node->as.atom.atom = (char *)qs_arena_alloc(a, n);
   strcpy(atom_node->as.atom.atom, atom_token.as.atom.atom);
   atom_node->as.atom.label = -1;
-  if (peek(p).type == TOKEN_COLON) {
-    eat(p, TOKEN_COLON);
-    qs_Token atom_index_token = eat(p, TOKEN_NUMBER);
+  if (peek(p).type == QS_TOKEN_COLON) {
+    eat(p, QS_TOKEN_COLON);
+    qs_Token atom_index_token = eat(p, QS_TOKEN_NUMBER);
     atom_node->as.atom.label = atom_index_token.as.num.value;
   }
   return atom_node;
 }
 static qs_ASTNode *parse_bond(qs_Arena *a, qs_Parser *p) {
   qs_ASTNode *bond_node = ast_node_create(a, AST_BOND);
-  qs_Token bond = eat(p, TOKEN_BOND);
+  qs_Token bond = eat(p, QS_TOKEN_BOND);
   bond_node->as.bond.order = bond.as.bond.order;
   return bond_node;
 }
@@ -405,17 +407,17 @@ static void process_atom_neighbors(qs_Arena *a, qs_Parser *p, qs_ASTNode *chain,
                                    qs_ASTNode *atom) {
   // Check for ring bonds
   qs_Token next = peek(p);
-  if (next.type == TOKEN_NUMBER) {
+  if (next.type == QS_TOKEN_NUMBER) {
     // Ring bond location
     qs_ASTNode *ring_bond = ast_node_create(a, AST_RING_BOND);
     ring_bond->as.ring_bond.label = next.as.num.value;
     ast_push_child(atom, ring_bond);
-    eat(p, TOKEN_NUMBER);
+    eat(p, QS_TOKEN_NUMBER);
   }
 
   // Check for implicit bonds
   next = peek(p);
-  if (next.type == TOKEN_ATOM || next.type == TOKEN_LBRACKET) {
+  if (next.type == QS_TOKEN_ATOM || next.type == QS_TOKEN_LBRACKET) {
     // Implicit bond!
     qs_ASTNode *bond = ast_node_create(a, AST_BOND);
     bond->as.bond.order = 1;
@@ -428,32 +430,32 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
   qs_ASTNode *last_atom = NULL;
   while (p->pointer < p->token_count) {
     switch (peek(p).type) {
-    case TOKEN_BOND: {
+    case QS_TOKEN_BOND: {
       qs_ASTNode *bond = parse_bond(a, p);
       ast_push_child(chain, bond);
       break;
     }
-    case TOKEN_LBRACKET: {
-      eat(p, TOKEN_LBRACKET);
+    case QS_TOKEN_LBRACKET: {
+      eat(p, QS_TOKEN_LBRACKET);
 
       qs_ASTNode *atom = parse_atom(a, p);
       ast_push_child(chain, atom);
       last_atom = atom;
-      eat(p, TOKEN_RBRACKET);
+      eat(p, QS_TOKEN_RBRACKET);
       process_atom_neighbors(a, p, chain, atom);
 
       break;
     }
-    case TOKEN_LPAREN: {
+    case QS_TOKEN_LPAREN: {
       if (last_atom == NULL) {
         printf("There is no atom for chain %zu to attach.\n", p->pointer);
         break;
       }
-      eat(p, TOKEN_LPAREN);
+      eat(p, QS_TOKEN_LPAREN);
       qs_ASTNode *branch = ast_node_create(a, AST_BRANCH);
       ast_push_child(last_atom, branch);
       qs_Token next = peek(p);
-      if (next.type == TOKEN_BOND) {
+      if (next.type == QS_TOKEN_BOND) {
         qs_ASTNode *bond = parse_bond(a, p);
         ast_push_child(branch, bond);
       } else {
@@ -465,12 +467,12 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
       ast_push_child(branch, new_chain);
       break;
     }
-    case TOKEN_RPAREN: {
-      eat(p, TOKEN_RPAREN);
+    case QS_TOKEN_RPAREN: {
+      eat(p, QS_TOKEN_RPAREN);
       return chain;
       break;
     }
-    case TOKEN_ATOM: {
+    case QS_TOKEN_ATOM: {
       qs_ASTNode *atom = parse_atom(a, p);
       ast_push_child(chain, atom);
       last_atom = atom;
