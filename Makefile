@@ -2,13 +2,13 @@ OUT_DIR := ./out
 EXAMPLES_DIR := ./examples
 
 $(OUT_DIR)/basic: $(EXAMPLES_DIR)/basic.c quick-smiles.h | $(OUT_DIR)
-	gcc -o $(OUT_DIR)/basic $(EXAMPLES_DIR)/basic.c -g -lm -I.
+	gcc -o $(OUT_DIR)/basic $(EXAMPLES_DIR)/basic.c -g -lm -I. -Wall -Werror
 
 $(OUT_DIR)/stereochem: $(EXAMPLES_DIR)/stereochem.c quick-smiles.h | $(OUT_DIR)
-	gcc -o $(OUT_DIR)/stereochem $(EXAMPLES_DIR)/stereochem.c -g -lm -I.
+	gcc -o $(OUT_DIR)/stereochem $(EXAMPLES_DIR)/stereochem.c -g -lm -I. -Wall -Werror
 
 $(OUT_DIR)/molecule: $(EXAMPLES_DIR)/molecule.c quick-smiles.h | $(OUT_DIR)
-	gcc -o $(OUT_DIR)/molecule $(EXAMPLES_DIR)/molecule.c -g -lm -I.
+	gcc -o $(OUT_DIR)/molecule $(EXAMPLES_DIR)/molecule.c -g -lm -I. -Wall -Werror
 
 $(OUT_DIR):
 	@mkdir -p $(OUT_DIR)

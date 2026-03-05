@@ -155,19 +155,14 @@ typedef struct {
   qs_chirality_t chirality;
   size_t neighbors[QS_MAX_NEIGHBORS];
   size_t neighbor_count;
+  size_t explicit_hydrogens;
 } qs_Atom;
-
-typedef enum {
-  QS_STEREO_NONE,
-  QS_STEREO_CIS,
-  QS_STEREO_TRANS,
-} qs_stereo_t;
 
 typedef struct {
   size_t atom_a;
   size_t atom_b;
   int order;
-  qs_stereo_t stereo;
+  qs_bond_direction_t direction;
 } qs_Bond;
 
 typedef struct {
@@ -178,8 +173,7 @@ typedef struct {
 } qs_Molecule;
 
 qs_Molecule *qs_molecule_create(qs_Arena *a, qs_ASTNode *ast_root);
-void qs_molecule_push_atom(qs_Arena *a, qs_Atom atom);
-void qs_molecule_push_bond(qs_Arena *a, size_t atoms_count, size_t bonds_count);
+void qs_molecule_print(qs_Molecule *m);
 
 //================================================
 //         IMPLEMENTATION
@@ -269,6 +263,8 @@ static const char *token_string(qs_Token *tok, char *buf) {
     return "QS_TOKEN_END";
   case QS_TOKEN_ERR:
     return "QS_TOKEN_ERR";
+  default:
+    return "?";
   }
 }
 
@@ -588,11 +584,12 @@ static qs_ASTNode *parse_bond(qs_Arena *a, qs_Parser *p,
     bond_node->as.bond.order = 1;
     break;
   }
-  default:
+  default: {
     char buf[128];
     printf("[%zu] Expected a bond type, got %s\n", p->pointer,
            token_string(&bond, buf));
     break;
+  }
   }
   return bond_node;
 }
@@ -780,6 +777,8 @@ static const char *ast_node_string(qs_ASTNode *node, char *buf,
     sprintf(buf, "QS_AST_RING_BOND: (%d)", node->as.ring_bond.label);
     return buf;
   }
+  default:
+    return "?";
   }
 }
 
@@ -799,34 +798,86 @@ void qs_print_ast(qs_ASTNode *root, size_t indentation_level) {
 //===============================
 
 static void count_ast_atoms_bonds(qs_ASTNode *ast_root, size_t *num_atoms,
-                                  size_t *num_bonds) {
+                                  size_t *num_bonds, size_t *num_ring_bonds) {
   if (ast_root->type == QS_AST_ATOM) {
     (*num_atoms)++;
-    *num_atoms += ast_root->as.atom.explicit_hydrogens;
-    *num_bonds += ast_root->as.atom.explicit_hydrogens;
+    /* *num_atoms += ast_root->as.atom.explicit_hydrogens; */
+    /* *num_bonds += ast_root->as.atom.explicit_hydrogens; */
   }
   if (ast_root->type == QS_AST_BOND) {
     (*num_bonds)++;
   }
   if (ast_root->type == QS_AST_RING_BOND) {
-    // Handle this later
-    /* (*num_bonds)++; */
+    (*num_ring_bonds)++;
   }
   for (size_t child_idx = 0; child_idx < ast_root->num_children; child_idx++) {
-    count_ast_atoms_bonds(ast_root->children[child_idx], num_atoms, num_bonds);
+    count_ast_atoms_bonds(ast_root->children[child_idx], num_atoms, num_bonds,
+                          num_ring_bonds);
   }
 }
 
-static void read_atoms(qs_ASTNode *ast_root, qs_Molecule *m, size_t *index) {
-  if (ast_root->type == QS_AST_ATOM) {
-    qs_Atom atom;
-    atom.index = (*index)++;
-    atom.chirality = ast_root->as.atom.chirality;
-    atom.symbol = ast_root->as.atom.atom;
-    // Handle neighbors here
-  }
+static void build_molecule(qs_ASTNode *ast_root, qs_Molecule *m,
+                           int *ring_atoms, int *atom_index, int *bond_index,
+                           int parent_atom, int connection_order,
+                           int connection_direction) {
+  if (ast_root->type != QS_AST_CHAIN)
+    return;
+  int prev_atom = parent_atom;
+  int pending_order = connection_order;
+  int pending_direction = connection_direction;
+
   for (size_t child_idx = 0; child_idx < ast_root->num_children; child_idx++) {
-    read_atoms(ast_root->children[child_idx], m, index);
+    qs_ASTNode *child = ast_root->children[child_idx];
+
+    if (child->type == QS_AST_BOND) {
+      pending_order = child->as.bond.order;
+      pending_direction = child->as.bond.direction;
+    } else if (child->type == QS_AST_ATOM) {
+      int cur = (*atom_index)++;
+
+      m->atoms[cur].index = cur;
+      m->atoms[cur].symbol = child->as.atom.atom;
+      m->atoms[cur].chirality = child->as.atom.chirality;
+      m->atoms[cur].explicit_hydrogens = child->as.atom.explicit_hydrogens;
+
+      if (prev_atom > -1 && pending_order > 0) {
+        qs_Bond *bond = &m->bonds[(*bond_index)++];
+        bond->order = pending_order;
+        bond->direction = pending_direction;
+        bond->atom_a = prev_atom;
+        bond->atom_b = cur;
+
+        // Neighbors
+        m->atoms[prev_atom].neighbors[m->atoms[prev_atom].neighbor_count++] =
+            cur;
+        m->atoms[cur].neighbors[m->atoms[cur].neighbor_count++] = prev_atom;
+      }
+      pending_order = 1;
+      pending_direction = QS_BOND_DIRECTION_NONE;
+
+      for (size_t j = 0; j < child->num_children; j++) {
+        qs_ASTNode *br = child->children[j];
+        if (br->type == QS_AST_BRANCH) {
+          build_molecule(br->children[1], m, ring_atoms, atom_index, bond_index,
+                         cur, br->children[0]->as.bond.order,
+                         br->children[0]->as.bond.direction);
+        } else if (br->type == QS_AST_RING_BOND) {
+          int ring_atom = ring_atoms[br->as.ring_bond.label];
+          if (ring_atom > -1) {
+            qs_Bond *bond = &m->bonds[(*bond_index)++];
+            bond->order = 1;
+            bond->direction = QS_BOND_DIRECTION_NONE;
+            bond->atom_a = cur;
+            bond->atom_b = ring_atom;
+            ring_atoms[br->as.ring_bond.label] = -1;
+          } else {
+            ring_atoms[br->as.ring_bond.label] = cur;
+          }
+        }
+      }
+
+      prev_atom = cur;
+    }
   }
 }
 
@@ -836,22 +887,34 @@ qs_Molecule *qs_molecule_create(qs_Arena *a, qs_ASTNode *ast_root) {
   // Counting atoms and bonds
   size_t num_atoms = 0;
   size_t num_bonds = 0;
-  count_ast_atoms_bonds(ast_root, &num_atoms, &num_bonds);
+  size_t num_ring_bonds = 0;
+  count_ast_atoms_bonds(ast_root, &num_atoms, &num_bonds, &num_ring_bonds);
+  num_bonds += num_ring_bonds / 2;
 
   m->atoms = qs_arena_alloc(a, num_atoms * sizeof(qs_Atom));
   m->bonds = qs_arena_alloc(a, num_bonds * sizeof(qs_Bond));
   m->atoms_count = num_atoms;
   m->bonds_count = num_bonds;
 
-  // Create atoms
-  size_t atoms_index;
-  read_atoms(ast_root, m, &atoms_index);
+  int ring_atoms[QS_MAX_RINGS];
+  memset(ring_atoms, -1, sizeof(ring_atoms));
+  int atom_index = 0;
+  int bond_index = 0;
+  build_molecule(ast_root, m, ring_atoms, &atom_index, &bond_index, -1, 0,
+                 QS_BOND_DIRECTION_NONE);
 
   return m;
 }
-void qs_molecule_push_atom(qs_Arena *a, qs_Atom atom) {}
-void qs_molecule_push_bond(qs_Arena *a, size_t atoms_count,
-                           size_t bonds_count) {}
+
+void qs_molecule_print(qs_Molecule *m) {
+  printf("Molecule | Atoms: %zu, Bonds: %zu\n", m->atoms_count, m->bonds_count);
+  for (size_t bond_idx = 0; bond_idx < m->bonds_count; bond_idx++) {
+    size_t atom_a = m->bonds[bond_idx].atom_a;
+    size_t atom_b = m->bonds[bond_idx].atom_b;
+    printf("  %s[%zu] - %s[%zu]\n", m->atoms[atom_a].symbol, atom_a,
+           m->atoms[atom_b].symbol, atom_b);
+  }
+}
 
 #endif // QUICK_SMILES_IMPLEMENTATION
 #endif // QUICK_SMILES_H
