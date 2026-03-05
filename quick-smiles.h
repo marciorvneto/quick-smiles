@@ -142,12 +142,50 @@ typedef struct {
 qs_ASTNode *qs_parse_tokens(qs_Arena *a, qs_Token *tokens, size_t token_count);
 void qs_print_ast(qs_ASTNode *root, size_t indentation_level);
 
+//===============================
+//
+//   Atoms and molecules
+//
+//===============================
+
+#define QS_MAX_NEIGHBORS 32
+typedef struct {
+  size_t index;
+  const char *symbol;
+  qs_chirality_t chirality;
+  size_t neighbors[QS_MAX_NEIGHBORS];
+  size_t neighbor_count;
+} qs_Atom;
+
+typedef enum {
+  QS_STEREO_NONE,
+  QS_STEREO_CIS,
+  QS_STEREO_TRANS,
+} qs_stereo_t;
+
+typedef struct {
+  size_t atom_a;
+  size_t atom_b;
+  int order;
+  qs_stereo_t stereo;
+} qs_Bond;
+
+typedef struct {
+  qs_Atom *atoms;
+  size_t atoms_count;
+  qs_Bond *bonds;
+  size_t bonds_count;
+} qs_Molecule;
+
+qs_Molecule *qs_molecule_create(qs_Arena *a, qs_ASTNode *ast_root);
+void qs_molecule_push_atom(qs_Arena *a, qs_Atom atom);
+void qs_molecule_push_bond(qs_Arena *a, size_t atoms_count, size_t bonds_count);
+
 //================================================
 //         IMPLEMENTATION
 //================================================
 
 #ifdef QUICK_SMILES_IMPLEMENTATION
-/* #if 1 */
 
 #define LEN(x) sizeof(x) / sizeof(x[0])
 
@@ -600,15 +638,6 @@ static void process_atom_neighbors(qs_Arena *a, qs_Parser *p, qs_ASTNode *chain,
       next = peek(p);
     }
   }
-
-  // Check for implicit bonds
-  next = peek(p);
-  if (next.type == QS_TOKEN_ATOM || next.type == QS_TOKEN_LBRACKET) {
-    // Implicit bond!
-    qs_ASTNode *bond = ast_node_create(a, QS_AST_BOND);
-    bond->as.bond.order = 1;
-    ast_push_child(chain, bond);
-  }
 }
 
 static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
@@ -632,8 +661,12 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
       break;
     }
     case QS_TOKEN_LBRACKET: {
+      if (last_atom != NULL) {
+        qs_ASTNode *bond = ast_node_create(a, QS_AST_BOND);
+        bond->as.bond.order = 1;
+        ast_push_child(chain, bond);
+      }
       eat(p, QS_TOKEN_LBRACKET);
-
       qs_ASTNode *atom = parse_atom(a, p);
       ast_push_child(chain, atom);
       last_atom = atom;
@@ -670,6 +703,11 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
       break;
     }
     case QS_TOKEN_ATOM: {
+      if (last_atom != NULL) {
+        qs_ASTNode *bond = ast_node_create(a, QS_AST_BOND);
+        bond->as.bond.order = 1;
+        ast_push_child(chain, bond);
+      }
       qs_ASTNode *atom = parse_atom(a, p);
       ast_push_child(chain, atom);
       last_atom = atom;
@@ -753,6 +791,67 @@ void qs_print_ast(qs_ASTNode *root, size_t indentation_level) {
     qs_print_ast(root->children[i], indentation_level + 1);
   }
 }
+
+//===============================
+//
+//   Atoms and molecules
+//
+//===============================
+
+static void count_ast_atoms_bonds(qs_ASTNode *ast_root, size_t *num_atoms,
+                                  size_t *num_bonds) {
+  if (ast_root->type == QS_AST_ATOM) {
+    (*num_atoms)++;
+    *num_atoms += ast_root->as.atom.explicit_hydrogens;
+    *num_bonds += ast_root->as.atom.explicit_hydrogens;
+  }
+  if (ast_root->type == QS_AST_BOND) {
+    (*num_bonds)++;
+  }
+  if (ast_root->type == QS_AST_RING_BOND) {
+    // Handle this later
+    /* (*num_bonds)++; */
+  }
+  for (size_t child_idx = 0; child_idx < ast_root->num_children; child_idx++) {
+    count_ast_atoms_bonds(ast_root->children[child_idx], num_atoms, num_bonds);
+  }
+}
+
+static void read_atoms(qs_ASTNode *ast_root, qs_Molecule *m, size_t *index) {
+  if (ast_root->type == QS_AST_ATOM) {
+    qs_Atom atom;
+    atom.index = (*index)++;
+    atom.chirality = ast_root->as.atom.chirality;
+    atom.symbol = ast_root->as.atom.atom;
+    // Handle neighbors here
+  }
+  for (size_t child_idx = 0; child_idx < ast_root->num_children; child_idx++) {
+    read_atoms(ast_root->children[child_idx], m, index);
+  }
+}
+
+qs_Molecule *qs_molecule_create(qs_Arena *a, qs_ASTNode *ast_root) {
+  qs_Molecule *m = qs_arena_alloc(a, sizeof(qs_Molecule));
+
+  // Counting atoms and bonds
+  size_t num_atoms = 0;
+  size_t num_bonds = 0;
+  count_ast_atoms_bonds(ast_root, &num_atoms, &num_bonds);
+
+  m->atoms = qs_arena_alloc(a, num_atoms * sizeof(qs_Atom));
+  m->bonds = qs_arena_alloc(a, num_bonds * sizeof(qs_Bond));
+  m->atoms_count = num_atoms;
+  m->bonds_count = num_bonds;
+
+  // Create atoms
+  size_t atoms_index;
+  read_atoms(ast_root, m, &atoms_index);
+
+  return m;
+}
+void qs_molecule_push_atom(qs_Arena *a, qs_Atom atom) {}
+void qs_molecule_push_bond(qs_Arena *a, size_t atoms_count,
+                           size_t bonds_count) {}
 
 #endif // QUICK_SMILES_IMPLEMENTATION
 #endif // QUICK_SMILES_H
