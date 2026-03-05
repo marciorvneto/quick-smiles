@@ -10,7 +10,7 @@
 
 //===============================
 //
-//   qs_Arena
+//   Arena
 //
 //===============================
 
@@ -120,12 +120,16 @@ typedef struct {
 qs_ASTNode *qs_parse_tokens(qs_Arena *a, qs_Token *tokens, size_t token_count);
 void qs_print_ast(qs_ASTNode *root, size_t indentation_level);
 
+//================================================
+//         IMPLEMENTATION
+//================================================
+
 #ifdef QUICK_SMILES_IMPLEMENTATION
 /* #if 1 */
 
 //===============================
 //
-//   qs_Arena
+//   Arena
 //
 //===============================
 
