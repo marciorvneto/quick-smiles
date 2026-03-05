@@ -13,9 +13,9 @@ This is an stb-style header-only library. Define `QUICK_SMILES_IMPLEMENTATION` i
 int main() {
   qs_Arena a = qs_arena_create();
 
-  printf("========= SMILES formula ===========\n");
+  printf("========= SMILES formula for Caffeine ===========\n");
 
-  const char *smiles = "[C:23]1[C:2](-C-C-C)CC#C(=CO)C1";
+  const char *smiles = "Cn1cnc2c1c(=O)n(c(=O)n2C)C";
   printf("%s\n", smiles);
 
   printf("========= Tokens ===========\n");

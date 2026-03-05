@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +41,7 @@ typedef enum {
   QS_TOKEN_LBRACKET,
   QS_TOKEN_RBRACKET,
   QS_TOKEN_BOND,
+  QS_TOKEN_PERCENT,
 
   QS_TOKEN_END,
   QS_TOKEN_ERR,
@@ -127,6 +129,15 @@ void qs_print_ast(qs_ASTNode *root, size_t indentation_level);
 #ifdef QUICK_SMILES_IMPLEMENTATION
 /* #if 1 */
 
+#define LEN(x) sizeof(x) / sizeof(x[0])
+
+static const char *known_two_letter_atoms[30] = {
+    // Common in SMILES
+    "Cl", "Br", "Na", "Si", "Fe", "Ca", "Al", "Mg", "Cu", "Zn",
+    "Mn", "Co", "Ni", "Cr", "Ti", "Li", "Se", "Sn", "Pb", "As",
+    "Sb", "Bi", "Ag", "Ba", "Sr", "Pt", "Pd", "Hg", "Mo", "Ge",
+};
+
 //===============================
 //
 //   Arena
@@ -157,7 +168,7 @@ void qs_arena_destroy(qs_Arena *a) { free(a->base); }
 
 //===============================
 //
-//   qs_Tokenizer
+//   Tokenizer
 //
 //===============================
 
@@ -184,6 +195,9 @@ static const char *token_string(qs_Token *tok, char *buf) {
   case QS_TOKEN_BOND: {
     sprintf(buf, "QS_TOKEN_BOND: %d", tok->as.bond.order);
     return buf;
+  }
+  case QS_TOKEN_PERCENT: {
+    return "QS_TOKEN_PERCENT";
   }
   case QS_TOKEN_END:
     return "QS_TOKEN_END";
@@ -213,10 +227,39 @@ static const char *parse_atom_str(qs_Arena *a, qs_Tokenizer *tokenizer) {
   memset(atom_string, 0, 8);
   char current = tokenizer->string[tokenizer->pointer];
   size_t i = 0;
-  while (isalpha(current)) {
-    if (i > 0 && isupper(current)) {
-      return atom_string;
+  if (isalpha(current) && islower(current)) {
+    atom_string[i] = current;
+    i++;
+    current = tokenizer->string[++tokenizer->pointer];
+    return atom_string;
+  }
+  if (isalpha(current) && isupper(current)) {
+    char next = tokenizer->string[tokenizer->pointer + 1];
+    if (islower(next)) {
+      // Check if it's a known combination
+      char buf[3];
+      buf[0] = current;
+      buf[1] = next;
+      buf[2] = '\0';
+      for (size_t i = 0; i < LEN(known_two_letter_atoms); i++) {
+        if ((strcmp(buf, known_two_letter_atoms[i])) == 0) {
+          atom_string[0] = current;
+          atom_string[1] = next;
+          tokenizer->pointer += 2;
+          return atom_string;
+        }
+      }
     }
+
+    // No matches were found, treat it as an isolated atom
+    atom_string[i] = current;
+    i++;
+    current = tokenizer->string[++tokenizer->pointer];
+    return atom_string;
+  }
+
+  // Fallback -> Treat whatever string comes next as an atom
+  while (isalpha(current)) {
     atom_string[i] = current;
     i++;
     current = tokenizer->string[++tokenizer->pointer];
@@ -298,6 +341,13 @@ static int get_token(qs_Arena *a, qs_Tokenizer *tokenizer,
     tokenizer->pointer++;
     return tok.type;
   }
+  case '%': {
+    qs_Token tok;
+    tok.type = QS_TOKEN_PERCENT;
+    push_token(tokenizer, &tok);
+    tokenizer->pointer++;
+    return tok.type;
+  }
   default: {
     if (isdigit(current)) {
       int num = parse_int(tokenizer);
@@ -332,8 +382,12 @@ int qs_tokenize(qs_Arena *a, qs_Tokenizer *t, const char *smiles) {
       printf("Error during tokenization\n");
       exit(1);
     }
-    if (last_token == QS_TOKEN_END)
+    if (last_token == QS_TOKEN_END) {
+      qs_Token end_token;
+      end_token.type = QS_TOKEN_END;
+      push_token(t, &end_token);
       break;
+    }
   }
 
   return 0;
@@ -403,16 +457,42 @@ static void ast_push_child(qs_ASTNode *node, qs_ASTNode *child) {
   node->children[node->num_children++] = child;
 }
 
+static int next_digit(int *number) {
+  if (*number <= 0)
+    return -1;
+  int exp = floor(log10(*number));
+  int power = pow(10, exp);
+
+  int quotient = floor(*number / power);
+  int rem = *number % power;
+
+  *number = rem;
+  return quotient;
+}
+
 static void process_atom_neighbors(qs_Arena *a, qs_Parser *p, qs_ASTNode *chain,
                                    qs_ASTNode *atom) {
   // Check for ring bonds
   qs_Token next = peek(p);
-  if (next.type == QS_TOKEN_NUMBER) {
-    // Ring bond location
-    qs_ASTNode *ring_bond = ast_node_create(a, QS_AST_RING_BOND);
-    ring_bond->as.ring_bond.label = next.as.num.value;
-    ast_push_child(atom, ring_bond);
-    eat(p, QS_TOKEN_NUMBER);
+  if (next.type == QS_TOKEN_PERCENT) {
+    eat(p, QS_TOKEN_PERCENT);
+    qs_Token number_token = eat(p, QS_TOKEN_NUMBER);
+    int number = number_token.as.num.value;
+    int digit = -1;
+    while ((digit = next_digit(&number)) > -1) {
+      qs_ASTNode *ring_bond = ast_node_create(a, QS_AST_RING_BOND);
+      ring_bond->as.ring_bond.label = digit;
+      ast_push_child(atom, ring_bond);
+    }
+  } else {
+    while (next.type == QS_TOKEN_NUMBER) {
+      // Ring bond location
+      qs_ASTNode *ring_bond = ast_node_create(a, QS_AST_RING_BOND);
+      ring_bond->as.ring_bond.label = next.as.num.value;
+      ast_push_child(atom, ring_bond);
+      eat(p, QS_TOKEN_NUMBER);
+      next = peek(p);
+    }
   }
 
   // Check for implicit bonds
@@ -479,6 +559,9 @@ static qs_ASTNode *parse_chain(qs_Arena *a, qs_Parser *p) {
       process_atom_neighbors(a, p, chain, atom);
       break;
     }
+    case QS_TOKEN_END: {
+      return chain;
+    }
     default: {
       char buf[64];
       qs_Token tok = peek(p);
@@ -530,7 +613,7 @@ static const char *ast_node_string(qs_ASTNode *node, char *buf,
     return buf;
   }
   case QS_AST_RING_BOND: {
-    sprintf(buf, "QS_AST_RING_BOND");
+    sprintf(buf, "QS_AST_RING_BOND: (%d)", node->as.ring_bond.label);
     return buf;
   }
   }
